@@ -16,6 +16,7 @@
             color: #fff;
             font-family: Arial, sans-serif;
         }
+
         #player-wrap {
             position: fixed;
             left: 0;
@@ -24,6 +25,7 @@
             bottom: 0;
             background: #000;
         }
+
         #player,
         #player iframe,
         #channel-frame {
@@ -35,6 +37,7 @@
             border: 0;
             background: #000;
         }
+
         #message {
             position: absolute;
             z-index: 10;
@@ -47,15 +50,18 @@
             line-height: 1.35;
             display: none;
         }
+
         #message.visible {
             display: block;
         }
+
         #message small {
             display: block;
             margin-top: 12px;
             color: #b9bcc4;
             font-size: 18px;
         }
+
         #fallback-link {
             display: none;
             margin: 22px auto 0;
@@ -68,6 +74,7 @@
             font-size: 20px;
             font-weight: bold;
         }
+
         #fallback-link.visible {
             display: block;
         }
@@ -76,10 +83,11 @@
 <body>
     <div id="player-wrap">
         <div id="player"></div>
+
         <div id="message">
             <div id="message-title"></div>
             <small id="message-detail"></small>
-            <a id="fallback-link" href="#">YouTube'da Aç</a>
+            <a id="fallback-link" href="#" rel="noopener noreferrer">YouTube'da Aç</a>
         </div>
     </div>
 
@@ -87,19 +95,45 @@
         (function () {
             "use strict";
 
+            var ALLOWED_COMMANDS = {
+                play: true,
+                pause: true,
+                stop: true,
+                mute: true,
+                unmute: true
+            };
+
             var params = getQueryParams();
-            var origin = window.location.origin;
+            var origin = window.location.protocol + "//" + window.location.host;
             var player = null;
             var playerReady = false;
-            var fallbackUrl = params.fallback || "";
+            var fallbackUrl = sanitizeHttpsUrl(params.fallback || "");
+            var safeName = sanitizeText(params.name || "YouTube", 80);
+            var safeVideoId = sanitizeVideoId(params.video || "");
+            var safeChannelId = sanitizeChannelId(params.channel || "");
+
             var messageEl = document.getElementById("message");
             var messageTitle = document.getElementById("message-title");
             var messageDetail = document.getElementById("message-detail");
             var fallbackLink = document.getElementById("fallback-link");
             var timeoutTimer = null;
 
+            function safeDecode(value) {
+                try {
+                    return decodeURIComponent(value || "");
+                } catch (ignore) {
+                    return "";
+                }
+            }
+
             function getQueryParams() {
                 var result = {};
+                var allowedKeys = {
+                    video: true,
+                    channel: true,
+                    fallback: true,
+                    name: true
+                };
                 var query = window.location.search.substring(1);
                 var parts = query ? query.split("&") : [];
                 var i;
@@ -109,23 +143,80 @@
 
                 for (i = 0; i < parts.length; i += 1) {
                     pair = parts[i].split("=");
-                    key = pair.shift();
-                    value = pair.join("=");
-                    if (key) {
-                        result[decodeURIComponent(key)] =
-                            decodeURIComponent((value || "").replace(/\+/g, " "));
+                    key = safeDecode(pair.shift());
+                    value = safeDecode(pair.join("=").replace(/\+/g, " "));
+
+                    if (key && allowedKeys[key]) {
+                        result[key] = value;
                     }
                 }
+
                 return result;
+            }
+
+            function sanitizeText(value, maxLength) {
+                var text = String(value || "")
+                    .replace(/[\u0000-\u001F\u007F]/g, " ")
+                    .replace(/\s+/g, " ")
+                    .replace(/^\s+|\s+$/g, "");
+
+                if (text.length > maxLength) {
+                    text = text.substring(0, maxLength);
+                }
+
+                return text;
+            }
+
+            function sanitizeVideoId(value) {
+                value = String(value || "");
+                return /^[A-Za-z0-9_-]{11}$/.test(value) ? value : "";
+            }
+
+            function sanitizeChannelId(value) {
+                value = String(value || "");
+                return /^UC[A-Za-z0-9_-]{20,30}$/.test(value) ? value : "";
+            }
+
+            function sanitizeHttpsUrl(value) {
+                var anchor;
+
+                if (!value) {
+                    return "";
+                }
+
+                try {
+                    anchor = document.createElement("a");
+                    anchor.href = value;
+
+                    if (anchor.protocol !== "https:") {
+                        return "";
+                    }
+
+                    if (!anchor.hostname) {
+                        return "";
+                    }
+
+                    return anchor.href;
+                } catch (ignore) {
+                    return "";
+                }
             }
 
             function postToParent(type, data) {
                 if (window.parent === window) {
                     return;
                 }
+
                 try {
+                    /*
+                     * Tizen Web App parent origin'i file:// / null olabildiği için
+                     * targetOrigin'i "*" bırakmak zorundayız. Gönderilen veriler
+                     * hassas değildir; gelen komutlarda ise event.source kontrolü
+                     * yapılarak yalnız gerçek parent kabul edilir.
+                     */
                     window.parent.postMessage({
                         source: "turkiyetv-youtube-bridge",
+                        version: 3,
                         type: type,
                         data: data || null
                     }, "*");
@@ -142,8 +233,10 @@
             function setFallbackLink() {
                 if (!fallbackUrl) {
                     fallbackLink.className = "";
+                    fallbackLink.removeAttribute("href");
                     return;
                 }
+
                 fallbackLink.href = fallbackUrl;
                 fallbackLink.className = "visible";
             }
@@ -161,6 +254,7 @@
 
             function reportFailure(code, reason, detail) {
                 clearStartTimeout();
+
                 postToParent("fallback", {
                     code: Number(code || 0),
                     reason: reason || "player-error",
@@ -189,9 +283,11 @@
                 playerReady = true;
                 clearStartTimeout();
                 hideMessage();
+
                 postToParent("ready", {
-                    name: params.name || "YouTube"
+                    name: safeName
                 });
+
                 try {
                     event.target.playVideo();
                 } catch (ignore) {}
@@ -204,7 +300,11 @@
             }
 
             function onPlayerError(event) {
-                reportFailure(event.data, "youtube-error", "YouTube player hata kodu: " + event.data);
+                reportFailure(
+                    event.data,
+                    "youtube-error",
+                    "YouTube player hata kodu: " + event.data
+                );
             }
 
             function onAutoplayBlocked() {
@@ -216,7 +316,7 @@
                 player = new YT.Player("player", {
                     width: "100%",
                     height: "100%",
-                    videoId: params.video,
+                    videoId: safeVideoId,
                     playerVars: {
                         autoplay: 1,
                         controls: 1,
@@ -237,14 +337,20 @@
                 var holder = document.getElementById("player");
                 var frame = document.createElement("iframe");
                 var url = "https://www.youtube.com/embed/live_stream?channel=" +
-                    encodeURIComponent(params.channel) +
+                    encodeURIComponent(safeChannelId) +
                     "&autoplay=1&controls=1&playsinline=1&enablejsapi=1&origin=" +
                     encodeURIComponent(origin);
 
                 frame.id = "channel-frame";
-                frame.setAttribute("allow", "autoplay; encrypted-media; picture-in-picture");
+                frame.setAttribute(
+                    "allow",
+                    "autoplay; encrypted-media; picture-in-picture"
+                );
                 frame.setAttribute("allowfullscreen", "allowfullscreen");
-                frame.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+                frame.setAttribute(
+                    "referrerpolicy",
+                    "strict-origin-when-cross-origin"
+                );
                 frame.src = url;
                 holder.appendChild(frame);
 
@@ -260,25 +366,35 @@
 
             window.onYouTubeIframeAPIReady = function () {
                 try {
-                    if (params.video) {
+                    if (safeVideoId) {
                         createVideoPlayer();
-                    } else if (params.channel) {
+                    } else if (safeChannelId) {
                         createChannelPlayer();
+                    } else if (params.video || params.channel) {
+                        showMessage(
+                            "Geçersiz YouTube kimliği",
+                            "Video veya kanal kimliği güvenlik kontrolünden geçmedi."
+                        );
                     } else {
                         showMessage(
-                            "Türkiye TV YouTube Player v2 hazır",
+                            "Türkiye TV YouTube Player v3 hazır",
                             "Test için URL'ye ?video=VIDEO_ID ekleyin."
                         );
                     }
                 } catch (error) {
-                    reportFailure(0, "init-error", error.message || "Player başlatılamadı");
+                    reportFailure(
+                        0,
+                        "init-error",
+                        error.message || "Player başlatılamadı"
+                    );
                 }
             };
 
             function handleCommand(command) {
-                if (!player || !command) {
+                if (!player || !command || !ALLOWED_COMMANDS[command]) {
                     return;
                 }
+
                 try {
                     if (command === "play") {
                         player.playVideo();
@@ -295,32 +411,70 @@
             }
 
             window.addEventListener("message", function (event) {
-                var data = event.data || {};
+                var data;
+
+                /*
+                 * Yalnız bu sayfayı iframe içinde açan gerçek parent pencerenin
+                 * komutları kabul edilir. Başka tab/window/frame komut gönderemez.
+                 */
+                if (window.parent !== window && event.source !== window.parent) {
+                    return;
+                }
+
+                data = event.data || {};
+
                 if (typeof data === "string") {
                     handleCommand(data);
                     return;
                 }
+
                 if (data.command) {
-                    handleCommand(data.command);
+                    handleCommand(String(data.command));
                 }
             }, false);
 
-            fallbackLink.onclick = function () {
-                postToParent("open-fallback", {
-                    fallback: fallbackUrl
-                });
+            fallbackLink.onclick = function (event) {
+                if (event && event.preventDefault) {
+                    event.preventDefault();
+                }
+
+                if (!fallbackUrl) {
+                    return false;
+                }
+
+                if (window.parent !== window) {
+                    postToParent("open-fallback", {
+                        fallback: fallbackUrl
+                    });
+                } else {
+                    window.location.href = fallbackUrl;
+                }
+
+                return false;
             };
 
-            if (params.video || params.channel) {
+            if (safeVideoId || safeChannelId) {
                 timeoutTimer = setTimeout(function () {
                     if (!playerReady) {
-                        reportFailure(0, "timeout", "YouTube player 15 saniye içinde hazır olmadı.");
+                        reportFailure(
+                            0,
+                            "timeout",
+                            "YouTube player 15 saniye içinde hazır olmadı."
+                        );
                     }
                 }, 15000);
             }
 
             var apiScript = document.createElement("script");
             apiScript.src = "https://www.youtube.com/iframe_api";
+            apiScript.async = true;
+            apiScript.onerror = function () {
+                reportFailure(
+                    0,
+                    "api-load-error",
+                    "YouTube IFrame API yüklenemedi."
+                );
+            };
             document.head.appendChild(apiScript);
         }());
     </script>
