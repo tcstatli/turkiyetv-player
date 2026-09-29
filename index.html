@@ -1,112 +1,328 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<meta name="referrer" content="strict-origin-when-cross-origin">
-<title>Türkiye TV YouTube Player</title>
-<style>
-html,body{width:100%;height:100%;margin:0;padding:0;overflow:hidden;background:#000;font-family:Arial,sans-serif}
-#player-wrap{position:fixed;left:0;top:0;width:100%;height:100%;background:#000}
-#yt-player{position:absolute;left:0;top:0;width:100%;height:100%;border:0}
-#message{position:absolute;z-index:10;left:50%;top:50%;width:80%;transform:translate(-50%,-50%);color:#fff;text-align:center;font-size:26px;line-height:1.4;display:none}
-#message.visible{display:block}
-#message small{display:block;margin-top:12px;color:#aaa;font-size:18px}
-</style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <title>Türkiye TV YouTube Player</title>
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #000;
+            color: #fff;
+            font-family: Arial, sans-serif;
+        }
+        #player-wrap {
+            position: fixed;
+            left: 0;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            background: #000;
+        }
+        #player,
+        #player iframe,
+        #channel-frame {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            border: 0;
+            background: #000;
+        }
+        #message {
+            position: absolute;
+            z-index: 10;
+            left: 50%;
+            top: 50%;
+            width: 82%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            font-size: 28px;
+            line-height: 1.35;
+            display: none;
+        }
+        #message.visible {
+            display: block;
+        }
+        #message small {
+            display: block;
+            margin-top: 12px;
+            color: #b9bcc4;
+            font-size: 18px;
+        }
+        #fallback-link {
+            display: none;
+            margin: 22px auto 0;
+            width: 320px;
+            padding: 15px 20px;
+            border-radius: 9px;
+            background: #cc0000;
+            color: #fff;
+            text-decoration: none;
+            font-size: 20px;
+            font-weight: bold;
+        }
+        #fallback-link.visible {
+            display: block;
+        }
+    </style>
 </head>
 <body>
-<div id="player-wrap">
-<iframe id="yt-player" title="YouTube Player" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
-<div id="message"></div>
-</div>
-<script>
-(function(){
-"use strict";
-var iframe=document.getElementById("yt-player");
-var messageEl=document.getElementById("message");
-var player=null;
-var params=getQueryParams();
-var origin=window.location.origin;
+    <div id="player-wrap">
+        <div id="player"></div>
+        <div id="message">
+            <div id="message-title"></div>
+            <small id="message-detail"></small>
+            <a id="fallback-link" href="#">YouTube'da Aç</a>
+        </div>
+    </div>
 
-function getQueryParams(){
-    var result={}, query=window.location.search.substring(1), parts=query?query.split("&"):[], i, pair;
-    for(i=0;i<parts.length;i+=1){
-        pair=parts[i].split("=");
-        if(pair[0]){
-            result[decodeURIComponent(pair[0])]=decodeURIComponent((pair[1]||"").replace(/\+/g," "));
-        }
-    }
-    return result;
-}
-function showMessage(text,detail){
-    messageEl.innerHTML="";
-    messageEl.appendChild(document.createTextNode(text));
-    if(detail){
-        var small=document.createElement("small");
-        small.appendChild(document.createTextNode(detail));
-        messageEl.appendChild(small);
-    }
-    messageEl.className="visible";
-}
-function hideMessage(){messageEl.className="";}
-function postToParent(type,data){
-    if(window.parent===window){return;}
-    try{window.parent.postMessage({source:"turkiyetv-youtube-bridge",type:type,data:data||null},"*");}catch(ignore){}
-}
-function buildSource(){
-    var common="autoplay=1&controls=1&playsinline=1&enablejsapi=1&origin="+encodeURIComponent(origin);
-    if(params.video){
-        return "https://www.youtube.com/embed/"+encodeURIComponent(params.video)+"?"+common;
-    }
-    if(params.channel){
-        return "https://www.youtube.com/embed/live_stream?channel="+encodeURIComponent(params.channel)+"&"+common;
-    }
-    return "";
-}
-function onPlayerReady(){
-    hideMessage();
-    postToParent("ready");
-    try{player.playVideo();}catch(ignore){}
-}
-function onPlayerStateChange(event){postToParent("state",{state:event.data});}
-function onPlayerError(event){
-    showMessage("YouTube yayını açılamadı","Hata kodu: "+event.data);
-    postToParent("error",{code:event.data});
-}
-window.onYouTubeIframeAPIReady=function(){
-    try{
-        player=new YT.Player("yt-player",{events:{onReady:onPlayerReady,onStateChange:onPlayerStateChange,onError:onPlayerError}});
-    }catch(error){
-        showMessage("YouTube player başlatılamadı",error.message||"");
-        postToParent("error",{message:error.message||"player init"});
-    }
-};
-function handleCommand(command){
-    if(!player||!command){return;}
-    try{
-        if(command==="play"){player.playVideo();}
-        else if(command==="pause"){player.pauseVideo();}
-        else if(command==="stop"){player.stopVideo();}
-        else if(command==="mute"){player.mute();}
-        else if(command==="unmute"){player.unMute();}
-    }catch(ignore){}
-}
-window.addEventListener("message",function(event){
-    var data=event.data||{};
-    if(typeof data==="string"){handleCommand(data);return;}
-    if(data.command){handleCommand(data.command);}
-},false);
+    <script>
+        (function () {
+            "use strict";
 
-var sourceUrl=buildSource();
-if(!sourceUrl){
-    showMessage("Türkiye TV YouTube Player hazır","URL'ye ?channel=KANAL_ID veya ?video=VIDEO_ID ekleyin.");
-    return;
-}
-iframe.src=sourceUrl;
-var apiScript=document.createElement("script");
-apiScript.src="https://www.youtube.com/iframe_api";
-document.head.appendChild(apiScript);
-}());
-</script>
+            var params = getQueryParams();
+            var origin = window.location.origin;
+            var player = null;
+            var playerReady = false;
+            var fallbackUrl = params.fallback || "";
+            var messageEl = document.getElementById("message");
+            var messageTitle = document.getElementById("message-title");
+            var messageDetail = document.getElementById("message-detail");
+            var fallbackLink = document.getElementById("fallback-link");
+            var timeoutTimer = null;
+
+            function getQueryParams() {
+                var result = {};
+                var query = window.location.search.substring(1);
+                var parts = query ? query.split("&") : [];
+                var i;
+                var pair;
+                var key;
+                var value;
+
+                for (i = 0; i < parts.length; i += 1) {
+                    pair = parts[i].split("=");
+                    key = pair.shift();
+                    value = pair.join("=");
+                    if (key) {
+                        result[decodeURIComponent(key)] =
+                            decodeURIComponent((value || "").replace(/\+/g, " "));
+                    }
+                }
+                return result;
+            }
+
+            function postToParent(type, data) {
+                if (window.parent === window) {
+                    return;
+                }
+                try {
+                    window.parent.postMessage({
+                        source: "turkiyetv-youtube-bridge",
+                        type: type,
+                        data: data || null
+                    }, "*");
+                } catch (ignore) {}
+            }
+
+            function clearStartTimeout() {
+                if (timeoutTimer) {
+                    clearTimeout(timeoutTimer);
+                    timeoutTimer = null;
+                }
+            }
+
+            function setFallbackLink() {
+                if (!fallbackUrl) {
+                    fallbackLink.className = "";
+                    return;
+                }
+                fallbackLink.href = fallbackUrl;
+                fallbackLink.className = "visible";
+            }
+
+            function showMessage(title, detail) {
+                messageTitle.textContent = title || "YouTube player";
+                messageDetail.textContent = detail || "";
+                messageEl.className = "visible";
+                setFallbackLink();
+            }
+
+            function hideMessage() {
+                messageEl.className = "";
+            }
+
+            function reportFailure(code, reason, detail) {
+                clearStartTimeout();
+                postToParent("fallback", {
+                    code: Number(code || 0),
+                    reason: reason || "player-error",
+                    fallback: fallbackUrl
+                });
+
+                if (Number(code) === 101 || Number(code) === 150) {
+                    showMessage(
+                        "Bu yayın uygulama içinde oynatılamıyor",
+                        "Yayın sahibi gömülü oynatmaya izin vermiyor. Hata kodu: " + code
+                    );
+                } else if (Number(code) === 153) {
+                    showMessage(
+                        "YouTube istemci kimliği hatası",
+                        "Referer / istemci kimliği kabul edilmedi. Hata kodu: 153"
+                    );
+                } else {
+                    showMessage(
+                        "YouTube yayını açılamadı",
+                        detail || (code ? "Hata kodu: " + code : "Player başlatılamadı")
+                    );
+                }
+            }
+
+            function onPlayerReady(event) {
+                playerReady = true;
+                clearStartTimeout();
+                hideMessage();
+                postToParent("ready", {
+                    name: params.name || "YouTube"
+                });
+                try {
+                    event.target.playVideo();
+                } catch (ignore) {}
+            }
+
+            function onPlayerStateChange(event) {
+                postToParent("state", {
+                    state: event.data
+                });
+            }
+
+            function onPlayerError(event) {
+                reportFailure(event.data, "youtube-error", "YouTube player hata kodu: " + event.data);
+            }
+
+            function onAutoplayBlocked() {
+                clearStartTimeout();
+                postToParent("autoplay-blocked", null);
+            }
+
+            function createVideoPlayer() {
+                player = new YT.Player("player", {
+                    width: "100%",
+                    height: "100%",
+                    videoId: params.video,
+                    playerVars: {
+                        autoplay: 1,
+                        controls: 1,
+                        playsinline: 1,
+                        rel: 0,
+                        origin: origin
+                    },
+                    events: {
+                        onReady: onPlayerReady,
+                        onStateChange: onPlayerStateChange,
+                        onError: onPlayerError,
+                        onAutoplayBlocked: onAutoplayBlocked
+                    }
+                });
+            }
+
+            function createChannelPlayer() {
+                var holder = document.getElementById("player");
+                var frame = document.createElement("iframe");
+                var url = "https://www.youtube.com/embed/live_stream?channel=" +
+                    encodeURIComponent(params.channel) +
+                    "&autoplay=1&controls=1&playsinline=1&enablejsapi=1&origin=" +
+                    encodeURIComponent(origin);
+
+                frame.id = "channel-frame";
+                frame.setAttribute("allow", "autoplay; encrypted-media; picture-in-picture");
+                frame.setAttribute("allowfullscreen", "allowfullscreen");
+                frame.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+                frame.src = url;
+                holder.appendChild(frame);
+
+                player = new YT.Player("channel-frame", {
+                    events: {
+                        onReady: onPlayerReady,
+                        onStateChange: onPlayerStateChange,
+                        onError: onPlayerError,
+                        onAutoplayBlocked: onAutoplayBlocked
+                    }
+                });
+            }
+
+            window.onYouTubeIframeAPIReady = function () {
+                try {
+                    if (params.video) {
+                        createVideoPlayer();
+                    } else if (params.channel) {
+                        createChannelPlayer();
+                    } else {
+                        showMessage(
+                            "Türkiye TV YouTube Player v2 hazır",
+                            "Test için URL'ye ?video=VIDEO_ID ekleyin."
+                        );
+                    }
+                } catch (error) {
+                    reportFailure(0, "init-error", error.message || "Player başlatılamadı");
+                }
+            };
+
+            function handleCommand(command) {
+                if (!player || !command) {
+                    return;
+                }
+                try {
+                    if (command === "play") {
+                        player.playVideo();
+                    } else if (command === "pause") {
+                        player.pauseVideo();
+                    } else if (command === "stop") {
+                        player.stopVideo();
+                    } else if (command === "mute") {
+                        player.mute();
+                    } else if (command === "unmute") {
+                        player.unMute();
+                    }
+                } catch (ignore) {}
+            }
+
+            window.addEventListener("message", function (event) {
+                var data = event.data || {};
+                if (typeof data === "string") {
+                    handleCommand(data);
+                    return;
+                }
+                if (data.command) {
+                    handleCommand(data.command);
+                }
+            }, false);
+
+            fallbackLink.onclick = function () {
+                postToParent("open-fallback", {
+                    fallback: fallbackUrl
+                });
+            };
+
+            if (params.video || params.channel) {
+                timeoutTimer = setTimeout(function () {
+                    if (!playerReady) {
+                        reportFailure(0, "timeout", "YouTube player 15 saniye içinde hazır olmadı.");
+                    }
+                }, 15000);
+            }
+
+            var apiScript = document.createElement("script");
+            apiScript.src = "https://www.youtube.com/iframe_api";
+            document.head.appendChild(apiScript);
+        }());
+    </script>
 </body>
 </html>
